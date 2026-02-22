@@ -8,6 +8,8 @@ from flask import Flask, jsonify, request
 API_TOKEN = ""
 # you can get API keys for free here - https://www.visualcrossing.com/weather-api
 RSA_KEY = ""
+# you can get API keys here - https://aistudio.google.com/api-keys
+AI_API_KEY = ""
 
 app = Flask(__name__)
 
@@ -43,6 +45,32 @@ def get_weather(location: str, date: str):
         raise InvalidUsage(response.text, status_code=response.status_code)
 
 
+# reccomendation for baristas what kind of drink would be suitable to reccomend due to the weather conditions
+
+def get_ai_recommendation(temp_max_c, temp_min_c, wind_kph, feels_like_c, humidity):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={AI_API_KEY}"
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    prompt = f"Today's temperature range is: {temp_max_c}°C - {temp_min_c}°C, feels like temperature: {feels_like_c}°C, wind {wind_kph} km/h, humidity: {humidity}%. Give a short advice (1-2 sentences) on what relevant product a coffee shop should recommend to their customers."
+
+    data = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }]
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+
+    if response.status_code == requests.codes.ok:
+        response_json = json.loads(response.text)
+        return response_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+    else:
+        return "Couldn't get advice from AI"
+
+
 @app.errorhandler(InvalidUsage)
 def handle_invalid_usage(error):
     response = jsonify(error.to_dict())
@@ -57,7 +85,6 @@ def home_page():
 
 @app.route("/content/api/v1/integration/generate", methods=["POST"])
 def weather_endpoint():
-    start_dt = dt.datetime.now()
     json_data = request.get_json()
 
     if json_data.get("token") is None:
@@ -88,12 +115,21 @@ def weather_endpoint():
         "humidity": day_data.get("humidity")
     }
 
+    ai_advice = get_ai_recommendation(
+        day_data.get("tempmax"),
+        day_data.get("tempmin"),
+        day_data.get("windspeed"),
+        day_data.get("feelslike"),
+        day_data.get("humidity")
+    )
+
     result = {
         "requester_name": requester_name,
         "timestamp": dt.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
         "location": location,
         "date": date,
-        "weather": weather_details
+        "weather": weather_details,
+        "ai_recommendation": ai_advice
     }
 
     return result
